@@ -50,21 +50,26 @@ class Stats(object):
         self.gauges = {}
         self.counters = {}
         self.times = {}
+        self.timer_counters = {}
 
     def reset(self):
         self.gauges.clear()
         self.counters.clear()
         self.times.clear()
+        self.timer_counters.clear()
 
     def treat_metric(self, metric_name, metric_type, value, sampling):
         metric_name += "|" + metric_type
         if metric_type == "ms":
-            if sampling is not None:
-                raise ValueError(
-                    "Invalid sampling for ms: `%d`, should be none"
-                    % sampling)
-            self.times[metric_name] = storage.Measure(
-                utils.dt_in_unix_ns(utils.utcnow()), value)
+            sampling = 1 if sampling is None else sampling
+            if metric_name in self.timer_counters:
+                current_value = self.timer_counters[metric_name].value
+            else:
+                current_value = 0
+            current_time = utils.dt_in_unix_ns(utils.utcnow())
+            self.timer_counters[metric_name] = storage.Measure(
+                current_time, current_value + (1 / sampling))
+            self.times[metric_name] = storage.Measure(current_time, value)
         elif metric_type == "g":
             if sampling is not None:
                 raise ValueError(
@@ -95,7 +100,8 @@ class Stats(object):
         for metric_name, measure in itertools.chain(
                 six.iteritems(self.gauges),
                 six.iteritems(self.counters),
-                six.iteritems(self.times)):
+                six.iteritems(self.times),
+                six.iteritems(self.timer_counters)):
             try:
                 # NOTE(jd) We avoid considering any concurrency here as statsd
                 # is not designed to run in parallel and we do not envision
